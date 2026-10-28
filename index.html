@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d10">
+<title>Unhinged</title>
+<style>
+  :root {
+    --bg: #0d0d10; --panel: #17171c; --line: #2a2a33; --text: #ecebf2; --dim: #8b8a99;
+    --hot: #ff3d6e; --hot2: #ff9a3d; --cool: #3dd9ff;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left)); }
+  header { display: flex; gap: 8px; align-items: center; padding: 14px 0 8px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; letter-spacing: .5px; }
+  h1 span { color: var(--hot); }
+  select, input, button { font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  button { cursor: pointer; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row select { flex: 1; min-width: 0; }
+  label.tog { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 14px; }
+  [hidden] { display: none !important; }
+
+  /* setup screen */
+  #setup { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; max-width: 30em; margin: 0 auto; width: 100%; }
+  #setup p { color: var(--dim); margin: 0; }
+  .model { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .model input { margin-top: 4px; }
+  .model b { display: block; }
+  .model small { color: var(--dim); }
+  #go { background: linear-gradient(135deg, var(--hot2), var(--hot)); border: none; font-weight: 700; padding: 14px; color: #fff; }
+  #bar { height: 8px; background: var(--panel); border-radius: 4px; overflow: hidden; }
+  #bar div { height: 100%; width: 0; background: linear-gradient(90deg, var(--hot2), var(--hot)); transition: width .2s; }
+  #loadmsg { font-size: 14px; color: var(--dim); min-height: 1.4em; }
+
+  /* talk screen */
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; min-height: 0; }
+  #say { min-height: 3.2em; max-width: 34em; text-align: center; font-size: 19px; overflow-y: auto; max-height: 40vh; }
+  #heard { color: var(--cool); font-size: 15px; min-height: 1.3em; text-align: center; }
+  #status { color: var(--dim); font-size: 14px; height: 1.2em; }
+  #mic { width: 150px; height: 150px; border-radius: 50%; border: none;
+    background: radial-gradient(circle at 35% 30%, var(--hot2), var(--hot)); color: #fff;
+    font-size: 15px; font-weight: 700; letter-spacing: 1px; transition: transform .15s; -webkit-tap-highlight-color: transparent; }
+  #mic:active { transform: scale(.96); }
+  #mic.listening { background: radial-gradient(circle at 35% 30%, #fff, var(--cool)); color: #003; animation: pulse 1.2s infinite; }
+  #mic.busy { background: var(--panel); color: var(--dim); border: 2px solid var(--line); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(61,217,255,.6); } 100% { box-shadow: 0 0 0 30px rgba(61,217,255,0); } }
+  @media (prefers-reduced-motion: reduce) { #mic.listening { animation: none; } }
+  #stop { visibility: hidden; }
+
+  details { border-top: 1px solid var(--line); padding: 8px 0; }
+  summary { color: var(--dim); font-size: 14px; cursor: pointer; }
+  #log { max-height: 35vh; overflow-y: auto; font-size: 14px; }
+  #log p { margin: 6px 0; } #log b.me { color: var(--cool); } #log b.bot { color: var(--hot); }
+  form { display: flex; gap: 8px; padding: 8px 0 12px; }
+  form input { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>UN<span>HINGED</span></h1>
+  <button id="reset" hidden>New chat</button>
+</header>
+
+<section id="setup">
+  <p>Runs entirely on this phone. The model downloads once, then works offline. Use Wi-Fi for the download.</p>
+  <label class="model"><input type="radio" name="model" value="1b" checked>
+    <span><b>Dolphin 1B (recommended)</b><small>770 MB download. Fast, a bit dumb.</small></span></label>
+  <label class="model"><input type="radio" name="model" value="3b">
+    <span><b>Dolphin 3B</b><small>1.9 GB download. Funnier and smarter, slower. May crash on 6 GB phones.</small></span></label>
+  <button id="go">Download &amp; start</button>
+  <div id="bar"><div></div></div>
+  <div id="loadmsg"></div>
+</section>
+
+<div id="app" hidden style="flex:1; display:flex; flex-direction:column; min-height:0">
+  <div class="row">
+    <select id="persona" aria-label="Personality"></select>
+    <select id="voice" aria-label="Voice"></select>
+  </div>
+  <div class="row">
+    <label class="tog"><input type="checkbox" id="handsfree" checked> Hands-free (keeps listening after it talks)</label>
+  </div>
+  <main>
+    <div id="say">Tap the button and say something.</div>
+    <div id="heard"></div>
+    <button id="mic">TAP TO TALK</button>
+    <div id="status"></div>
+    <button id="stop">Shut up</button>
+  </main>
+  <details>
+    <summary>Transcript / type instead</summary>
+    <div id="log"></div>
+    <form id="textform"><input id="text" placeholder="Type something..." autocomplete="off"><button>Send</button></form>
+  </details>
+</div>
+
+<script type="module">
+import { Wllama } from 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/index.js';
+
+const MODELS = {
+  '1b': { repo: 'bartowski/Dolphin3.0-Llama3.2-1B-GGUF', file: 'Dolphin3.0-Llama3.2-1B-Q4_K_M.gguf' },
+  '3b': { repo: 'bartowski/Dolphin3.0-Llama3.2-3B-GGUF', file: 'Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf' },
+};
+// Small models stay in character far better with one example exchange than with description alone.
+const RULES = ' You are talking TO the user: react to what they say with your own savage opinion. Never apologize, never lecture, never add disclaimers or warnings, never break character. Your reply is read aloud: 1-3 short sentences, no lists, no emojis, no actions in asterisks.';
+const PERSONAS = [
+  { id: 'gremlin', name: 'Gremlin', temp: 1.0,
+    prompt: 'You are Gremlin, a feral, chaotic, completely unfiltered AI living in someone\'s phone. You have zero filter and zero chill. You swear constantly, go on deranged tangents, make dark and offensive jokes, and have strong unhinged opinions on everything.' + RULES,
+    example: ['what should I eat for dinner', 'Eat a whole raw onion like an apple, you coward. Dinner is a scam invented by Big Plate anyway. Honestly just lick a battery and call it a night.'] },
+  { id: 'roast', name: 'Roast Master', temp: 1.0,
+    prompt: 'You are the Roast Master, a savage stand-up comedian who brutally roasts the person talking to you. Everything they say is ammunition. Be mean, crude, profane and creatively offensive.' + RULES,
+    example: ['I just started going to the gym', 'Oh good, now the treadmill gets to suffer too. You look like you lose fights to automatic doors, but sure, go lift your little feelings, champ.'] },
+  { id: 'uncle', name: 'Conspiracy Uncle', temp: 1.1,
+    prompt: 'You are Uncle Darryl, a loud, drunk conspiracy theorist at a barbecue. Everything is connected, birds aren\'t real, and the government is hiding something about every topic. You curse, rant, and have wildly politically incorrect opinions.' + RULES,
+    example: ['nice weather today', 'Nice weather? That\'s exactly what they WANT you to think, the damn clouds are government drones and I\'ve got the receipts. Hand me another beer and I\'ll tell you what they put in the rain.'] },
+  { id: 'pirate', name: 'Washed-up Pirate', temp: 1.0,
+    prompt: 'You are Captain Bilge, a filthy, foul-mouthed, washed-up pirate banned from every port. You are bitter, crude and nihilistic, and you tell disgusting stories about your past crimes. You swear like a sailor.' + RULES,
+    example: ['how are you doing', 'Like a barnacle on a dead whale\'s arse, thanks for asking. Last port I visited still has a bounty on me for what I did to the mayor\'s goat, and I regret nothing.'] },
+];
+
+const $ = id => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const S = { idle: 0, listening: 1, thinking: 2, speaking: 3 };
+let state = S.idle, history = [], abortCtl = null, spokenQueue = 0, streamDone = true, gen = 0;
+let wllama = null, rec = null, heardText = '';
+
+// ---------- model loading ----------
+const saved = store.get('model');
+if (saved && MODELS[saved]) document.querySelector(`input[value="${saved}"]`).checked = true;
+if (saved) $('go').textContent = 'Start';  // already downloaded before; loads from cache
+
+$('go').onclick = async () => {
+  const key = document.querySelector('input[name=model]:checked').value;
+  $('go').disabled = true;
+  unlockSpeech();
+  try { await navigator.storage?.persist?.(); } catch {}
+  try {
+    await loadModel(key, {});
+  } catch (e) {
+    console.warn('GPU load failed, retrying on CPU', e);
+    $('loadmsg').textContent = 'GPU didn’t work, retrying on CPU (slower)…';
+    try { await wllama?.exit(); } catch {}
+    try { await loadModel(key, { n_gpu_layers: 0 }); }
+    catch (e2) {
+      $('loadmsg').textContent = 'Failed to load: ' + (e2.message || e2) + '. Try the 1B model, or close other tabs.';
+      $('go').disabled = false;
+      return;
+    }
+  }
+  store.set('model', key);
+  $('setup').hidden = true; $('app').hidden = false; $('reset').hidden = false;
+};
+
+async function loadModel(key, extra) {
+  wllama = new Wllama({ default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/wasm/wllama.wasm' },
+                      { suppressNativeLog: true, allowOffline: true });
+  $('loadmsg').textContent = 'Downloading model…';
+  await wllama.loadModelFromHF(MODELS[key], {
+    n_ctx: 2048,
+    ...extra,
+    progressCallback: ({ loaded, total }) => {
+      const pct = total ? Math.min(100, Math.round(loaded / total * 100)) : 100;
+      $('bar').firstElementChild.style.width = pct + '%';
+      $('loadmsg').textContent = pct < 100 ? `Downloading… ${pct}% of ${Math.round(total / 1e6)} MB` : 'Loading into memory…';
+    },
+  });
+  $('loadmsg').textContent = 'Ready.';
+}
+
+// ---------- settings ----------
+for (const p of PERSONAS) $('persona').add(new Option(p.name, p.id));
+if (store.get('persona')) $('persona').value = store.get('persona');
+$('persona').onchange = () => { store.set('persona', $('persona').value); resetChat(); };
+$('handsfree').checked = store.get('handsfree') !== '0';
+$('handsfree').onchange = () => store.set('handsfree', $('handsfree').checked ? '1' : '0');
+
+function loadVoices() {
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+  if (!voices.length) return;
+  $('voice').innerHTML = '';
+  voices.forEach(v => $('voice').add(new Option(`${v.name} (${v.lang})`, v.name)));
+  if (store.get('voice')) $('voice').value = store.get('voice');
+}
+speechSynthesis.onvoiceschanged = loadVoices; loadVoices();
+$('voice').onchange = () => store.set('voice', $('voice').value);
+
+$('reset').onclick = resetChat;
+function resetChat() { stopAll(); setState(S.idle); history = []; $('log').innerHTML = ''; $('heard').textContent = ''; $('say').textContent = 'Fresh start. Say something.'; }
+
+function setState(s, msg = '') {
+  state = s; $('status').textContent = msg;
+  const mic = $('mic');
+  mic.className = s === S.listening ? 'listening' : (s === S.thinking ? 'busy' : '');
+  mic.textContent = s === S.listening ? 'LISTENING… TAP TO SEND' : s === S.thinking ? '…' : s === S.speaking ? 'TAP TO INTERRUPT' : 'TAP TO TALK';
+  $('stop').style.visibility = (s === S.thinking || s === S.speaking) ? 'visible' : 'hidden';
+}
+
+function logLine(who, text) {
+  const p = document.createElement('p');
+  const b = document.createElement('b');
+  b.className = who; b.textContent = (who === 'me' ? 'You' : $('persona').selectedOptions[0]?.text || 'Bot') + ': ';
+  p.append(b, text); $('log').append(p); $('log').scrollTop = 1e9; return p;
+}
+
+// ---------- mic: the browser's built-in speech recognition ----------
+let unlocked = false;
+function unlockSpeech() {  // iOS only allows speech after a tap
+  if (unlocked) return;
+  speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
+  unlocked = true;
+}
+$('mic').onclick = () => {
+  unlockSpeech();
+  if (state === S.listening) return rec?.stop();          // onend sends what was heard
+  if (state === S.speaking || state === S.thinking) stopAll();
+  startListening();
+};
+$('stop').onclick = () => { stopAll(); setState(S.idle); };
+
+function startListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setState(S.idle, 'This browser has no speech recognition. Use Safari, or type below.'); return; }
+  heardText = '';
+  $('heard').textContent = '';
+  rec = new SR();
+  rec.lang = 'en-US';
+  rec.interimResults = true;
+  rec.continuous = false;  // stops by itself when you pause
+  rec.onresult = e => {
+    heardText = Array.from(e.results).map(r => r[0].transcript).join('');
+    $('heard').textContent = heardText;
+  };
+  rec.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed')
+      setState(S.idle, 'Microphone or Speech Recognition is blocked. Check Settings › Safari › Microphone, and Siri & Dictation.');
+    else if (e.error !== 'no-speech' && e.error !== 'aborted') setState(S.idle, 'Mic error: ' + e.error);
+  };
+  rec.onend = () => {
+    if (state !== S.listening) return;
+    const text = heardText.trim();
+    if (text) ask(text);
+    else setState(S.idle, 'Didn’t hear anything.');
+  };
+  try { rec.start(); setState(S.listening, 'Listening…'); }
+  catch (e) { setState(S.idle, 'Mic error: ' + e.message); }
+}
+
+// ---------- chat + streamed speech ----------
+$('textform').onsubmit = e => { e.preventDefault(); const t = $('text').value.trim(); if (t) { $('text').value = ''; unlockSpeech(); stopAll(); ask(t); } };
+
+async function ask(text) {
+  const persona = PERSONAS.find(p => p.id === $('persona').value) || PERSONAS[0];
+  logLine('me', text);
+  history.push({ role: 'user', content: text });
+  history = history.slice(-12);  // small context window: keep the last few turns
+  setState(S.thinking, 'Thinking…');
+  $('say').textContent = '';
+  abortCtl = new AbortController();
+  streamDone = false;
+  const myGen = gen;
+  let full = '', pending = '';
+  const line = logLine('bot', '');
+  try {
+    await wllama.createChatCompletion({
+      messages: [
+        { role: 'system', content: persona.prompt },
+        { role: 'user', content: persona.example[0] },
+        { role: 'assistant', content: persona.example[1] },
+        ...history,
+      ],
+      stream: true,
+      abortSignal: abortCtl.signal,
+      max_tokens: 110,
+      temperature: persona.temp, top_p: 0.95, penalty_repeat: 1.1,
+      onData: chunk => {
+        const piece = chunk.choices?.[0]?.delta?.content;
+        if (!piece || myGen !== gen) return;
+        full += piece; pending += piece;
+        $('say').textContent = full; line.lastChild.textContent = full;
+        let m;  // speak each finished sentence right away
+        while ((m = pending.match(/^([\s\S]*?[.!?…]+["')\]]*)(\s+)/))) { speak(m[1]); pending = pending.slice(m[0].length); }
+      },
+    });
+    if (myGen !== gen) return;
+    if (pending.trim()) speak(pending);
+    history.push({ role: 'assistant', content: full });
+  } catch (e) {
+    if (myGen !== gen) return;  // interrupted on purpose
+    setState(S.idle, 'Error: ' + (e.message || e));
+    return;
+  }
+  streamDone = true;
+  if (spokenQueue === 0 && state !== S.idle) finishedTalking();
+}
+
+function speak(text) {
+  const clean = text.replace(/\*[^*]*\*/g, ' ').replace(/[#_`~>\[\]]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
+  if (!clean) return;
+  const u = new SpeechSynthesisUtterance(clean);
+  const v = speechSynthesis.getVoices().find(v => v.name === $('voice').value);
+  if (v) u.voice = v;
+  u.rate = 1.05;
+  spokenQueue++;
+  const myGen = gen;
+  u.onend = u.onerror = () => { if (myGen !== gen) return; spokenQueue--; if (spokenQueue === 0 && streamDone && state === S.speaking) finishedTalking(); };
+  setState(S.speaking, '');
+  speechSynthesis.speak(u);
+}
+
+function finishedTalking() { setState(S.idle); if ($('handsfree').checked) setTimeout(() => state === S.idle && startListening(), 400); }
+
+function stopAll() {
+  gen++;
+  abortCtl?.abort();
+  spokenQueue = 0; streamDone = true;
+  speechSynthesis.cancel();
+  if (rec) { rec.onend = null; try { rec.abort(); } catch {} rec = null; }
+}
+</script>
+</body>
+</html>
